@@ -1,0 +1,643 @@
+// Movable reaction game
+
+#include <LiquidCrystal_I2C.h>
+#include <EEPROM.h>
+#include <WiFi.h>
+#include <WiFiClient.h>
+#include <BlynkSimpleEsp32.h>
+#define EEPROM_SIZE 14
+
+// VARIABLES
+
+// led pins
+const int led[] = {15, 18, 4, 16, 17};
+// button pins
+const int button[] = {32, 33, 25, 26, 27};
+// Highscores
+int highscore=0;
+int highscore2=0;
+int highscore3=0;
+// For showing score
+int score=0;
+// For comparing previous highscore
+int temp=0;
+// For choosing play game or change settings
+int menubutton0=0;
+int menubutton1=0;
+int menubutton2=0;
+int menubutton3=0;
+int menubutton4=0;
+// Reading button state while playing game
+int buttonstate = 0;
+// Saving randomnumber for writing led HIGH and reading right button
+int randomnumber=0;
+// comparing if randomnumber is same as previous round 
+int notsamenumber=10;
+// timer value for game one
+int timeri=0;
+// Variable for confirm changes in blynk app
+int changeconfirmed=0;
+// For selecting right game
+int gameselection=1;
+// Level for training mode
+int level=20000;
+// current time for training mode
+int currentmillis=0;
+// For keeping up pace
+int currentpluslevel=0;
+// Reading level value from blynk
+int levelfromblynk=0;
+// Time for game one
+int timeforgameone=0;
+
+
+// probably unnecesary int decreasingtime=0;
+
+
+
+// TIMER THINGS 
+hw_timer_t*timer=NULL;
+
+// LCD PREPARING
+int lcdColumns =16;
+int lcdRows =2;
+LiquidCrystal_I2C lcd(0x27, lcdColumns, lcdRows);
+
+
+// SETTINGS FOR BLYNK
+char auth[] = "";
+char ssid[] = "";
+char pass[] = "";
+
+
+
+
+// THIS IS FOR TIMER
+void IRAM_ATTR onTimer(){
+  timeri++;  
+}
+
+
+void setup() {
+// SERIAL SETUP
+  Serial.begin(115200);
+// BLYNK SETUP
+  Blynk.begin(auth, ssid,pass);
+// EEPROM SETUP
+  EEPROM.begin(EEPROM_SIZE);
+// TIMER SETUP
+  timer = timerBegin(0,80,true);
+  timerAttachInterrupt(timer, &onTimer, true);
+  timerAlarmWrite(timer,1000000, true);
+  timerAlarmEnable(timer);
+// LCD SETTINGS
+  lcd.init();
+  lcd.backlight();  
+// INPUT / OUTPUT SETTINGS
+  for(int i = 0; i < 5; i++)
+    pinMode(led[i],OUTPUT);
+
+  for(int i = 0; i < 5; i++)
+    pinMode(button[i],INPUT); 
+
+}
+
+
+
+
+// LOOP LOOP LOOP LOOP LOOP LOOP LOOP LOOP LOOP
+
+void loop() {
+// turn off all leds
+  for(int i = 0; i < 5; i++)
+    digitalWrite(led[i],LOW);
+// clear lcd and show that game is in setting menu
+  lcd.clear();
+  lcd.setCursor(2,0);
+  lcd.print("SETTING MENU");
+  lcd.setCursor(0,1);
+  delay(1000);
+  
+// READING HIGHSCORE FROM GAME ONE
+  long kaksi = EEPROM.read(0);
+  long yksi = EEPROM.read(0 + 1);
+  highscore=((kaksi << 0) & 0xFFFFFF) + ((yksi << 8) & 0xFFFFFFFF);
+
+// READING HIGHSCORE FROM GAME TWO
+  long kaksii = EEPROM.read(2);
+  long yksii = EEPROM.read(2 + 1);
+  highscore2=((kaksii << 0) & 0xFFFFFF) + ((yksii << 8) & 0xFFFFFFFF); 
+
+// READING GAMEMODE
+  long gameselectionkaksii = EEPROM.read(4);
+  long gameselectionyksii = EEPROM.read(4 + 1);
+  gameselection=((gameselectionkaksii << 0) & 0xFFFFFF) + ((gameselectionyksii << 8) & 0xFFFFFFFF);
+
+
+// READING TIME FOR GAME ONE
+  long timeforgameonekaksii = EEPROM.read(6);
+  long timeforgameoneyksii = EEPROM.read(6 + 1);
+  timeforgameone=((timeforgameonekaksii << 0) & 0xFFFFFF) + ((timeforgameoneyksii << 8) & 0xFFFFFFFF);
+
+/*  // READING DECREASINGTIME
+  long decreasingtimekaksii = EEPROM.read(8);
+  long decreasingtimeyksii = EEPROM.read(8 + 1);
+  decreasingtime=((decreasingtimekaksii << 0) & 0xFFFFFF) + ((decreasingtimeyksii << 8) & 0xFFFFFFFF);
+  */
+
+// READING STARTINGPOINT
+  long levelfromblynkkaksii = EEPROM.read(10);
+  long levelfromblynkyksii = EEPROM.read(10 + 1);
+  levelfromblynk=((levelfromblynkkaksii << 0) & 0xFFFFFF) + ((levelfromblynkyksii << 8) & 0xFFFFFFFF);
+
+// READING HIGHSCORE3
+  long highscore3kaksi = EEPROM.read(12);
+  long highscore3yksi = EEPROM.read(12 + 1);
+  highscore3=((highscore3kaksi << 0) & 0xFFFFFF) + ((highscore3yksi << 8) & 0xFFFFFFFF);
+
+// Wait that settings are confirmed and send highscores to blynk
+  while(changeconfirmed==0){        
+    Blynk.run();
+    Serial.println(highscore);
+    Serial.println(highscore2);
+    Serial.println(highscore3);
+    sendhighscore();    
+  }
+  
+// just to be sure 
+  changeconfirmed=0;
+
+// GAMEMODE
+  byte gamemodetwo = (gameselection & 0xFF);
+  byte gamemodeone = ((gameselection >> 8) & 0xFF);  
+  EEPROM.write(4, gamemodetwo);
+  EEPROM.write(4 + 1, gamemodeone);
+  EEPROM.commit();
+
+
+// TIME FOR GAME ONE
+  byte timeforgameonetwo = (timeforgameone & 0xFF);
+  byte timeforgameoneone = ((timeforgameone >> 8) & 0xFF);  
+  EEPROM.write(6, timeforgameonetwo);
+  EEPROM.write(6 + 1, timeforgameoneone);
+  EEPROM.commit();
+
+/*
+// DECREASING TIME
+  byte decreasingtimetwo = (decreasingtime & 0xFF);
+  byte decreasingtimeone = ((decreasingtime >> 8) & 0xFF);  
+  EEPROM.write(8, decreasingtimetwo);
+  EEPROM.write(8 + 1, decreasingtimeone);
+  EEPROM.commit();
+  */
+
+// STARTINGPOINT
+  byte levelfromblynktwo = (levelfromblynk & 0xFF);
+  byte levelfromblynkone = ((levelfromblynk >> 8) & 0xFF);  
+  EEPROM.write(10, levelfromblynktwo);
+  EEPROM.write(10 + 1, levelfromblynkone);
+  EEPROM.commit();
+
+// increasing level
+  levelfromblynk=levelfromblynk*10;
+  
+// clearing lcd and going menu
+  lcd.clear();
+  menu();
+}
+    
+
+
+
+
+// Waiting settings to be confirmed
+BLYNK_WRITE(V0)
+{
+  changeconfirmed=param.asInt();
+  
+}
+
+/*
+BLYNK_WRITE(V3)
+{
+  decreasingtime=param.asInt();
+  
+}
+*/
+// reading level for training mode
+BLYNK_WRITE(V7)
+{
+  levelfromblynk=param.asInt();
+  
+}
+
+// sending highscores to blynk
+void sendhighscore()
+{
+  Blynk.virtualWrite(V5, highscore);
+  Blynk.virtualWrite(V6, highscore2);
+  Blynk.virtualWrite(V8,highscore3);
+}
+
+// game selection from blynk
+BLYNK_WRITE(V1) {
+  switch (param.asInt())
+  {
+    case 1: // Against time (60)s
+      gameselection=1;
+      timeforgameone=20;
+      break;
+    case 2: // Decreasing time (as long as you can keep up)
+      gameselection=1;
+      timeforgameone=60;
+      break;
+    case 3: // Decreasing time (as long as you can keep up)
+      gameselection=1;
+      timeforgameone=120;
+      break;
+    case 4: // Decreasing time (as long as you can keep up)
+      gameselection=2;
+      break;
+
+    default:
+      Serial.println("Unknown item selected");
+  }
+}
+
+
+
+// menumenumenumenumenumenumenumenumenumenumenumenumenumenumenumenumenumenumenumenumenumenumenumenumenumenumenumenumenumenumenumenumenumenumenumenu
+
+void menu(){
+  level=levelfromblynk;
+// instructions for user
+  lcd.setCursor(0,0);
+  lcd.print("MID BUTTON: GAME");
+  lcd.setCursor(0,1);
+  lcd.print("OTHERS: SETTINGS ");
+  
+  digitalWrite(led[2],HIGH);
+
+// reading status of buttons
+    
+   menubutton0=digitalRead(button[0]);
+   menubutton1=digitalRead(button[1]);
+   menubutton2=digitalRead(button[2]);
+   menubutton3=digitalRead(button[3]);
+   menubutton4=digitalRead(button[4]);
+
+// If middle button is pressed then lets go to select game
+   if(menubutton2==1){ 
+    selectgame();
+   }
+
+// if other buttons are pressed then lets go to change settings in blynk app
+   if(menubutton0==1 or menubutton1==1 or menubutton3==1 or menubutton4==1){    
+    loop();
+   } 
+// just for looping menu function
+   menu();     
+}
+
+// Selecting game and after this jumps in game
+void selectgame(){
+  if(gameselection==1){
+    gameone();
+  }
+
+  if(gameselection==2){
+    gametwo();
+  }
+
+  if(gameselection==3){
+    loop();
+  }
+ 
+}
+
+// GOING IN GAMEONEEE
+void gameone(){
+// GAME START THINGS
+  for(int i = 0; i < 5; i++)
+    digitalWrite(led[i],LOW);
+  lcd.clear();  
+  for(int i = 0; i < 5; i++)
+  digitalWrite(led[i],HIGH);
+  lcd.setCursor(0,0);
+  lcd.print("GAME IS");
+  lcd.setCursor(0,1);
+  lcd.print("STARTING");
+  delay(3000);
+  for(int i = 0; i < 5; i++)
+    digitalWrite(led[i],LOW);
+  lcd.clear();  
+
+
+// Setting score and timer     
+  score=0;
+  timeri=0;
+
+// going loop which lasts either 20s/60s/120s
+  while(timeri<timeforgameone){
+// showing score
+    lcd.setCursor(4,0);
+    lcd.print("SCORE IS");
+    lcd.setCursor(0,1);
+    lcd.print(score);
+    
+// creating randomnumber and if number is same as last round then generate new number   
+    randomnumber=random(5);
+
+    while(randomnumber==notsamenumber){
+      randomnumber=random(5);
+    }
+// led ON
+       
+    digitalWrite(led[randomnumber],HIGH);
+// read buttonstate so we can in loop
+    buttonstate=digitalRead(button[randomnumber]);
+    
+// While loop waits right button to be pressed. If you wait too long then game is over
+    while(buttonstate==0){
+// creating different tones for speakers     
+      if(randomnumber==0){
+        digitalWrite(led[randomnumber],HIGH);
+        delay(1);
+        digitalWrite(led[randomnumber],LOW);
+        delay(1);        
+      }
+
+            if(randomnumber==1){
+        digitalWrite(led[randomnumber],HIGH);
+        delay(2);
+        digitalWrite(led[randomnumber],LOW);
+        delay(2);        
+      }
+
+            if(randomnumber==2){
+        digitalWrite(led[randomnumber],HIGH);
+        delay(3);
+        digitalWrite(led[randomnumber],LOW);
+        delay(3);        
+      }
+
+            if(randomnumber==3){
+        digitalWrite(led[randomnumber],HIGH);
+        delay(4);
+        digitalWrite(led[randomnumber],LOW);
+        delay(4);        
+      }
+
+            if(randomnumber==4){
+        digitalWrite(led[randomnumber],HIGH);
+        delay(5);
+        digitalWrite(led[randomnumber],LOW);
+        delay(5);        
+      }
+
+// reading buttonstate    
+      buttonstate=digitalRead(button[randomnumber]);
+      if (timeri>timeforgameone){
+        buttonstate=1;
+      }      
+    }
+// led off       
+    digitalWrite(led[randomnumber],LOW);
+// add one to score and just to be sure make button status=0 annnd remember last randomnumber
+    buttonstate=0;
+    score=score+1;
+    notsamenumber=randomnumber;
+
+   }
+// after game is over clear lcd make little piip noise and turn all leds on and off
+   score--;
+   lcd.clear();
+   timeri=0;
+   while(timeri<2){
+    
+   for(int i = 0; i < 5; i++)
+    digitalWrite(led[i],HIGH);  
+   delay(1);
+   for(int i = 0; i < 5; i++)
+    digitalWrite(led[i],LOW);
+   delay(1);
+   }
+// show the score
+   lcd.setCursor(0,0);
+   lcd.print("GAME OVER");
+   delay(1500);
+   lcd.clear();
+   lcd.setCursor(0,0);
+   lcd.print("SCORE WAS");
+   lcd.setCursor(0,1);
+   lcd.print(score);
+   delay(2000);
+   lcd.clear();
+   
+// if there is new highscore, then write score in EEPROM and there is few IF's because it needs to write highscore in right game modes highscore
+   if(timeforgameone==20){
+    Serial.println("eeprom 20");
+            
+    long two = EEPROM.read(0);
+    long one = EEPROM.read(0 + 1);
+    temp=((two << 0) & 0xFFFFFF) + ((one << 8) & 0xFFFFFFFF);
+   
+   
+   if(score>temp){           
+    byte twoo = (score & 0xFF);
+    byte onee = ((score >> 8) & 0xFF);  
+    EEPROM.write(0, twoo);
+    EEPROM.write(0 + 1, onee);
+    EEPROM.commit();    
+   }
+   }
+
+   if(timeforgameone==60){
+    Serial.println("eeprom 60");            
+    long two = EEPROM.read(2);
+    long one = EEPROM.read(2 + 1);
+    temp=((two << 0) & 0xFFFFFF) + ((one << 8) & 0xFFFFFFFF);
+   
+   
+   if(score>temp){           
+    byte twoo = (score & 0xFF);
+    byte onee = ((score >> 8) & 0xFF);  
+    EEPROM.write(2, twoo);
+    EEPROM.write(2 + 1, onee);
+    EEPROM.commit();    
+   }
+   }
+
+   if(timeforgameone==120){
+    Serial.println("eeprom 120");            
+    long two = EEPROM.read(12);
+    long one = EEPROM.read(12 + 1);
+    temp=((two << 0) & 0xFFFFFF) + ((one << 8) & 0xFFFFFFFF);
+   
+   
+   if(score>temp){           
+    byte twoo = (score & 0xFF);
+    byte onee = ((score >> 8) & 0xFF);  
+    EEPROM.write(12, twoo);
+    EEPROM.write(12 + 1, onee);
+    EEPROM.commit();    
+   }
+   }
+
+  
+   
+  menu();
+   
+   
+}
+
+
+
+
+
+
+
+
+void gametwo(){
+  
+// STARTING GAME  
+  for(int i = 0; i < 5; i++)
+    digitalWrite(led[i],LOW);
+  lcd.clear();   
+  for(int i = 0; i < 5; i++)
+  digitalWrite(led[i],HIGH);
+  lcd.setCursor(0,0);
+  lcd.print("TRAINING MODE IS");
+  lcd.setCursor(0,1);
+  lcd.print("STARTING");
+  delay(3000);
+  for(int i = 0; i < 5; i++)
+    digitalWrite(led[i],LOW);
+  lcd.clear();
+
+// TIMING SETTINGS  
+  currentmillis=millis(); 
+  currentpluslevel=currentmillis+level;
+
+  score=0;
+  while(millis()<=currentpluslevel){
+    lcd.setCursor(4,0);
+    lcd.print("SCORE IS");
+    lcd.setCursor(0,1);
+    lcd.print(score);    
+
+    randomnumber=random(5);
+    while(randomnumber==notsamenumber){
+
+      randomnumber=random(5);
+    
+    }
+
+    
+    buttonstate=digitalRead(button[randomnumber]);
+    digitalWrite(led[randomnumber],HIGH);
+
+    currentmillis=millis();
+    currentpluslevel=currentmillis+level;
+    
+    
+    while(buttonstate==0){
+
+      if(randomnumber==0){
+        digitalWrite(led[randomnumber],HIGH);
+        delay(1);
+        digitalWrite(led[randomnumber],LOW);
+        delay(1);        
+      }
+
+            if(randomnumber==1){
+        digitalWrite(led[randomnumber],HIGH);
+        delay(2);
+        digitalWrite(led[randomnumber],LOW);
+        delay(2);        
+      }
+
+            if(randomnumber==2){
+        digitalWrite(led[randomnumber],HIGH);
+        delay(3);
+        digitalWrite(led[randomnumber],LOW);
+        delay(3);        
+      }
+
+            if(randomnumber==3){
+        digitalWrite(led[randomnumber],HIGH);
+        delay(4);
+        digitalWrite(led[randomnumber],LOW);
+        delay(4);        
+      }
+
+            if(randomnumber==4){
+        digitalWrite(led[randomnumber],HIGH);
+        delay(5);
+        digitalWrite(led[randomnumber],LOW);
+        delay(5);        
+      }
+      buttonstate=digitalRead(button[randomnumber]);
+      if(millis()>currentpluslevel){
+        buttonstate=1;
+      }
+      
+    }
+
+
+
+    digitalWrite(led[randomnumber],LOW);
+    notsamenumber=randomnumber;
+    buttonstate=0;
+    score=score+1;
+
+    
+  }
+
+  
+  timeri=0;
+  while(timeri<2){
+  
+  for(int i = 0; i < 5; i++)
+   digitalWrite(led[i],HIGH);  
+  delay(1);
+  for(int i = 0; i < 5; i++)
+   digitalWrite(led[i],LOW);
+  delay(1);
+  }
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("GAME OVER");
+  delay(2000);
+
+  score--;
+  lcd.clear();
+  lcd.print("SCORE WAS");
+  lcd.setCursor(0,1);
+  lcd.print(score);
+  delay(2000);
+  lcd.clear();
+
+  
+  
+  menu();
+
+
+  
+}
+
+
+
+
+
+
+
+
+
+
+  
+
+  
+
+
+  
